@@ -1,68 +1,121 @@
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+#Ручная интеграция с React
+Внедрение Redux в приложение, делает его центральной, корневой частью всего приложения. Причём не имеет значения, используем мы React или нет. Структура контейнера и принцип работы с ним останется неизменным в любой ситуации. Общая схема работы приложения становится такой:
 
-## Available Scripts
+Возникает событие. Например, пользователь кликнул по кнопке.
+Обработчик события выполняет какую-то логику и в конце обновляет контейнер через store.dispatch.
+Контейнер по очереди вызывает все функции, добавленные через store.subscribe. Эти функции меняют представление на основе нового состояния внутри контейнера. И так по кругу: Событие -> Изменение состояния -> Отрисовка нового состояния.
+Реализуем эту логику в связке с React. Для примера возьмём простой компонент счётчик с одной кнопкой, которая отображает текущее количество кликов. Связку с React сделаем в ручном режиме без использования готовой библиотеки. Тогда процесс работы не покажется магическим. Начнём с контейнера:
 
-In the project directory, you can run:
+import { createStore } from 'redux';
 
-### `npm start`
+const reducer = (state = 0, action) => {
+  switch (action.type) {
+    case 'INCREMENT':
+      return state + 1;
+    default:
+      return state;
+  }
+};
 
-Runs the app in the development mode.<br />
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+const store = createStore(reducer);
+Контейнер ничего не знает про существование DOM, его задача - хранить данные и модифицировать их. Эта мысль очень важна, её нужно прочувствовать. Воспринимайте контейнер как базу данных.
 
-The page will reload if you make edits.<br />
-You will also see any lint errors in the console.
+Следующим шагом сделаем компонент в React. Вторая важная мысль, раз мы начинаем использовать внешнее хранилище для данных, то внутренний setState нам больше не нужен. Компоненты получают все необходимые данные через пропсы (props).
 
-### `npm test`
+В будущих уроках мы рассмотрим ситуации, когда внутреннее управление состоянием всё ещё требуется, несмотря на использование Redux
 
-Launches the test runner in the interactive watch mode.<br />
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+import React from 'react';
 
-### `npm run build`
+export default class Increment extends React.Component {
+  static defaultProps = {
+    count: 0,
+  };
 
-Builds the app for production to the `build` folder.<br />
-It correctly bundles React in production mode and optimizes the build for the best performance.
+  render() {
+    const { count } = this.props;
+    return (
+      <div>
+        <button>{count}</button>
+      </div>
+    )
+  }
+}
+Компонент Increment работает с пропсом count. Его имя выбрано произвольно, нам не нужно опираться на структуру контейнера.
 
-The build is minified and the filenames include the hashes.<br />
-Your app is ready to be deployed!
+Теперь добавим обработчики. Напомню, что каждый обработчик в конце своей работы должен обновить состояние контейнера. С технической точки зрения произойдёт вызов функции store.dispatch и нужного действия. Откуда нам их взять внутри компонента? Всё просто, мы их прокинем как свойства в наш компонент.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+import React from 'react';
 
-### `npm run eject`
+export default class Increment extends React.Component {
+  handleClick = () => {
+    const { dispatch, increment } = this.props;
+    dispatch(increment());
+  }
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+  render() {
+    const { count } = this.props;
+    return (
+      <div>
+        <button onClick={this.handleClick}>{count}</button>
+      </div>
+    )
+  }
+}
+Остался последний шаг: нужно вызывать перерисовку компонента после изменения содержимого контейнера. В этом нам поможет функция store.subscribe:
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+import ReactDOM from 'react-dom';
+import React from 'react';
+import { createStore } from 'redux';
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+// Импортируем компонент
+import Increment from './components/Increment.jsx';
+// Импортируем редьюсеры
+import reducers from './reducers.jsx';
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+// Создаём контейнер. редьюсеры описаны в отдельном файле
+const store = createStore(reducers);
 
-## Learn More
+// Создаём действие и оборачиваем его в функцию
+export const increment = () => ({
+  type: 'INCREMENT',
+  payload: {},
+});
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+// Элемент для подключения React
+const containerElement = document.getElementById('container');
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+// Подписываемся на изменения состояния внутри контейнера
+// На каждое изменение отрисовываем наш компонент заново
+store.subscribe(() => {
+  const state = store.getState();
+  ReactDOM.render(
+    <Increment dispatch={store.dispatch} count={state} increment={increment} />,
+    containerElement,
+  );
+});
 
-### Code Splitting
 
-This section has moved here: https://facebook.github.io/create-react-app/docs/code-splitting
+// Первый раз нужно отрисовать руками
+ReactDOM.render(
+  <Increment dispatch={store.dispatch} increment={increment} />,
+  containerElement,
+);
+Когда все необходимые объекты созданы, происходит первоначальная отрисовка компонента в DOM. В компонент передаются необходимые данные, в нашем случае функция store.dispatch и функция increment. Последняя создаёт действие при своём вызове. Дальше начинает работать последовательность шагов, описанная в начале урока:
 
-### Analyzing the Bundle Size
+Пользователь нажимает на кнопку
+Срабатывает обработчик handleClick, который вызывает dispatch(increment()).
+Выполняется редьюсер и его ветка INCREMENT. Она увеличивает счётчик на единицу.
+Контейнер вызывает функции, добавленные через subscribe. В нашем случае это одна функция.
+Эта функция извлекает состояние из контейнера через функцию store.getState.
+Затем эта же функция перерисовывает компонент в DOM, передавая ему новое состояние.
+На каждом этапе этого процесса можно вносить различные изменения. Например, нам может понадобиться передавать несколько функций создающих действия. Достаточно просто их передать. Некоторые из этих функций могут принимать данные, которые store.dispatch передаст внутрь контейнера:
 
-This section has moved here: https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size
+export const increment = (step = 1) => ({
+  type: 'INCREMENT',
+  payload: { step },
+});
+Такой инкремент позволяет менять шаг приращения. Внутри контейнера код поменяется на такой:
 
-### Making a Progressive Web App
-
-This section has moved here: https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app
-
-### Advanced Configuration
-
-This section has moved here: https://facebook.github.io/create-react-app/docs/advanced-configuration
-
-### Deployment
-
-This section has moved here: https://facebook.github.io/create-react-app/docs/deployment
-
-### `npm run build` fails to minify
-
-This section has moved here: https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify
+case 'INCREMENT':
+  return state + action.payload.step;
+Само состояние внутри контейнера может стать структурой, например, объектом.
